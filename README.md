@@ -1,2 +1,3 @@
 # Heart-Disease-Prediction
-Use machine learning models to predict the existence of heart disease
+This is part of the course project for UCLA STATS 101C. 
+
