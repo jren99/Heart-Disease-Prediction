@@ -1,0 +1,446 @@
+---
+title: "stats101c project"
+author: "Jaya Ren"
+date: "11/16/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## load packages
+
+```{r}
+library(gridExtra)
+library(ggplot2)
+library(tidyverse)
+library(ISLR)
+library(class)
+library(dplyr)
+library(mice)
+library(pls)
+library(splines)
+library(caret)
+library(MASS)
+library(glmnet)
+library(boot)
+library(tree)
+library(Hmisc)# impute missing values
+```
+
+## load data 
+```{r}
+data = read.csv("HDtrainNew.csv")
+dim(data)
+```
+```{r}
+summary(data)
+```
+note that RestingBP (resting blood pressure),Cholesterol,  have 0 values, which is unreasonable.
+## prepare data
+```{r}
+# change F, M to female and male, delete other
+data$Sex[data$Sex == "F"] <- "Female"
+data$Sex[data["Sex"] == "M"] <- "Male"
+data <- data[(data$Sex %in% c("Female", "Male")), ]
+data$Sex<-droplevels(data$Sex)
+levels(data$Sex)
+dim(data)
+
+#change unknowns and unreasonable 0's to NA
+data$smoking_status[data$smoking_status=="Unknown"] <- NA
+data$RestingBP[data$RestingBP==0] <-NA
+data$Cholesterol[data$Cholesterol==0]<-NA
+sapply(data, function(x) sum(is.na(x)))
+
+
+## impute missing values
+data$Cholesterol<-impute(data$Cholesterol)
+data$RestingBP<-impute(data$RestingBP)
+data$ever_married <- impute(data$ever_married)
+data$ever_married <- droplevels(data$ever_married)
+data$work_type <- impute(data$work_type)
+data$work_type <- droplevels(data$work_type)
+data$Residence_type <- impute(data$Residence_type)
+data$Residence_type<-droplevels(data$Residence_type)
+data$smoking_status <- impute(data$smoking_status)
+data$smoking_status<-droplevels(data$smoking_status)
+
+sapply(data, function(x) sum(is.na(x)))
+summary(data)
+```
+
+
+```{r}
+data["BMI"]<- rep(0,nrow(data))
+data["BMI"][data["bmi"]<18.5]<-"Underweight"
+data["BMI"][data["bmi"]>=18.5]<-"Healthy"
+data["BMI"][data["bmi"]>25]<-"Overweight"
+data["BMI"][data["bmi"]>30]<-"Obese"
+
+data["High_Cholesterol"]<- rep(0,nrow(data))
+data["High_Cholesterol"][data["Cholesterol"]>=240]<-"Yes"
+data["High_Cholesterol"][data["Cholesterol"]<240]<-"No"
+
+data["older"]<-ifelse(data$Age>60,"Yes", "No")
+
+data["age_group"]<-cut(data$Age, breaks = c(0,2,17,30,60,80,Inf), labels = c("baby", "child", "young adults", "mid-aged adults", "old adults", "long-lived"))
+
+data["glucose_group"]<-cut(data$avg_glucose_level, breaks = c(0,125,Inf), labels = c("normal",  "diabetes"))
+
+```
+
+
+## density plot
+
+```{r}
+g1<-ggplot(data,aes(Age,color=HeartDisease))+geom_density() 
+g2<-ggplot(data,aes(RestingBP,color=HeartDisease))+geom_density() 
+g3<-ggplot(data,aes(Cholesterol,color=HeartDisease))+geom_density() 
+g4<-ggplot(data,aes(MaxHR,color=HeartDisease))+geom_density() 
+g5<-ggplot(data,aes(Oldpeak,color=HeartDisease))+geom_density() 
+g6<-ggplot(data,aes(avg_glucose_level,color=HeartDisease))+geom_density() 
+g7<-ggplot(data,aes(bmi,color=HeartDisease))+geom_density() 
+
+g4
+grid.arrange(g3,g4,g5,g6,nrow=2)
+```
+
+## stack bar chart
+```{r}
+s1 <-ggplot(data, aes(x = BMI35, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s2<-ggplot(data, aes(x = stroke, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s3 <-ggplot(data, aes(x = Residence_type, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s4 <-ggplot(data, aes(x =smoking_status, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s5 <-ggplot(data, aes(x =work_type , y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s6 <-ggplot(data, aes(x = hypertension, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s7 <-ggplot(data, aes(x =ST_Slope , y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s8 <-ggplot(data, aes(x = ExerciseAngina, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s9 <-ggplot(data, aes(x = RestingECG, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s10 <-ggplot(data, aes(x=ChestPainType, y = Ob))+geom_col(aes(fill=HeartDisease), width = 0.5)
+s11 <-ggplot(data, aes(x=FastingBS, y = Ob))+geom_col(aes(fill=HeartDisease), width = 0.5)
+s12 <-ggplot(data, aes(x=Sex, y = Ob))+geom_col(aes(fill=HeartDisease), width = 0.5)
+
+grid.arrange(s2,s6,s8,s11, nrow = 2)
+```
+
+
+```{r}
+data$HeartDisease_t <- ifelse(data$HeartDisease == "Yes", 1, 0) 
+cate = colnames(data[sapply(data, function(x) !(is.numeric(x)))])
+
+data %>%
+        group_by(!!sym("Sex")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+
+data %>%
+        group_by(!!sym("ChestPainType")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+
+data %>%
+        group_by(!!sym("FastingBS")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+
+data %>%
+        group_by(!!sym("RestingECG")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("ExerciseAngina")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("ST_Slope")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("hypertension")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("ever_married")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("work_type")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("Residence_type")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("smoking_status")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("stroke")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("BMI")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("High_Cholesterol")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("age_group")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("older")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+data %>%
+        group_by(!!sym("glucose_group")) %>%
+        summarise(
+            hd_share = round(mean(HeartDisease_t), 3),
+            n = n(),
+            n_hd = sum(HeartDisease_t == 1)
+        )
+```
+FastingBS, hypertension, ever_married, work_type, stroke, glucose_group, older
+
+```{r}
+ggplot(data, aes(x = Age, fill = HeartDisease))+
+  geom_density(alpha = 0.3)
+ggplot(data, aes(x = avg_glucose_level, fill = HeartDisease))+
+  geom_density(alpha = 0.3)
+ggplot(data, aes(x = bmi, fill = HeartDisease))+
+  geom_density(alpha = 0.3)
+```
+
+for hypertension, stroke, ever_married, work_type, smoking_status, heart_disease columns, age difference can affect the result.
+
+## check assumption
+```{r}
+model_log <- glm(as.factor(HeartDisease)~.-Ob, data = data,family = binomial())
+summary(model_log)
+plot(model_log)
+# from residual v.s. fitted, there's clearly a pattern so this is not a linear model
+# from normal qq, normality is good.
+# from scale-location, variance is not constant
+```
+most significant: ExerciseAngina, MaxHR, Oldpeak, avg_glucose_level, stroke
+significant: ChestPainType,  , FastingBS, ST_Slope
+
+```{r}
+cat_cols = c(
+    'Sex', 'hypertension', 'stroke', 
+    'ever_married', 'work_type', 'Residence_type', 
+    'smoking_status', 'HeartDisease', "ChestPainType", "FastingBS", "ExerciseAngina",
+    "ST_Slope", "BMI", "glucose_group", "older"
+    
+)
+for (col in cat_cols){
+    print(ggplot(data, aes(x=!!sym(col), y=Age, fill = !!sym(col))) + 
+       geom_boxplot())
+}
+```
+hypertension, stroke,ever_married,work_type,FastingBS, BMI, older
+
+```{r}
+## scale 
+#num_cols = c(
+#  "Age", "Cholesterol", "MaxHR", "Oldpeak", "avg_glucose_level", "bmi", "RestingBP")
+#num_data = scale(data[,num_cols])
+#data = cbind(num_data, data[,cat_cols])
+```
+
+
+
+## logistic regression
+
+```{r}
+data<- data
+set.seed(1128)
+sample.i<-sample(1:nrow(data),0.3*nrow(data),replace = F)
+testing<-data[sample.i,]
+training<-data[-sample.i,]
+dim(training)
+```
+
+```{r}
+hd.pca <- prcomp(training[,c("Cholesterol","MaxHR","Oldpeak", "avg_glucose_level")], center = TRUE,scale. = TRUE)
+summary(hd.pca)
+str(hd.pca)
+hd.pca$rotation
+loadings <- as.data.frame(hd.pca$rotation)
+loadings
+axes <- predict(hd.pca, newdata = training)
+training <- cbind(training, axes)
+axes_t <- predict(hd.pca,newdata = testing)
+testing <-cbind(testing, axes_t)
+```
+
+
+```{r}
+num_cols = c(
+  "Age", "RestingBP", "Cholesterol", "MaxHR", "Oldpeak", "avg_glucose_level",
+  "bmi"
+)
+hd.pca <- prcomp(training[,num_cols], center = TRUE,scale. = TRUE)
+summary(hd.pca)
+# 4 components - 84%; 5 components 93%
+str(hd.pca)
+hd.pca$rotation
+loadings <- as.data.frame(hd.pca$rotation[,1:5])
+loadings
+axes <- predict(hd.pca, newdata = training)
+training <- cbind(training, axes)
+axes_t <- predict(hd.pca,newdata = testing)
+testing <-cbind(testing, axes_t)
+```
+
+
+```{r}
+# logistic regression
+#siginificant predictors are MaxHR, Oldpeak, avg-glucose_level, strokeYes
+model_log2 <- glm(as.factor(HeartDisease)~MaxHR+ Oldpeak+ stroke+hypertension+avg_glucose_level, data = training, family = binomial())
+summary(model_log2)
+pred.log2 <- predict(model_log2, type = "response")
+#data.outm = data.frame(truth=training$HeartDisease, predicted = pred.log2, Diagonal = training$avg_glucose_level)
+
+# check the graph
+#pm1 = ggplot(data.outm, aes(Diagonal,predicted))+geom_point()
+#ppm1 = pm1+geom_point(aes(colour = truth))
+#ppm1
+
+glm.pred=rep('No',nrow(training))
+glm.pred[pred.log2>0.5] ='Yes'
+#confusion matrix for training set
+table(glm.pred,factor(training$HeartDisease))
+# accuracy 0.807346
+mean(glm.pred== factor(training$HeartDisease))
+
+# for testing
+pred.log2_test <- predict(model_log2, newdata = testing, type="response")
+glm.pred=rep('No',nrow(testing))
+glm.pred[pred.log2_test>0.5] ='Yes'
+mean(glm.pred==testing$HeartDisease)
+```
+
+```{r}
+model_pca <- glm(as.factor(HeartDisease)~PC1+PC2+PC3+PC4+hypertension+ stroke+FastingBS+ExerciseAngina+ChestPainType+ST_Slope, data = training, family = binomial())
+summary(model_pca)
+pred.pca <- predict(model_pca, type = "response")
+#data.outm = data.frame(truth=training$HeartDisease, predicted = pred.log2, Diagonal = training$avg_glucose_level)
+
+# check the graph
+#pm1 = ggplot(data.outm, aes(Diagonal,predicted))+geom_point()
+#ppm1 = pm1+geom_point(aes(colour = truth))
+#ppm1
+
+glm.pred=rep('No',nrow(training))
+glm.pred[pred.pca>0.5] ='Yes'
+#confusion matrix for training set
+table(glm.pred,factor(training$HeartDisease))
+# accuracy 0.807346
+mean(glm.pred== factor(training$HeartDisease))
+
+pred.pca_test <- predict(model_pca, newdata = testing, type="response")
+glm.pred=rep('No',nrow(testing))
+glm.pred[pred.pca_test>0.5] ='Yes'
+mean(glm.pred==testing$HeartDisease)
+```
+
+
+## feature selection
+```{r}
+back=step(model_pca,direction="both",data=training, k = log(length(training$HeartDisease)))
+```
+
+
+## KNN CV
+```{r}
+library(Rfast)
+#MaxHR, Oldpeak, ave_glucose_level, stroke
+x <- as.matrix(training[, c("PC1", "PC2", "PC3", "PC4")])
+y <- as.factor(training[, "HeartDisease"])
+mod <- knn.cv(nfolds = 10, k=25, y = y, x = x)
+mod$crit
+```
+
+## LDA
+```{r}
+hd.lda<-lda(as.factor(HeartDisease) ~ PC1+PC2+PC3+PC4+ChestPainType+FastingBS+ST_Slope+ExerciseAngina+stroke+Sex , data = training)
+library(caret)
+# confusion matrix for training 
+hd.t = table(predict(hd.lda)$class, training$HeartDisease )
+print( confusionMatrix( hd.t ) )
+# confusion matrix for testing
+hd.predict.test<- predict(hd.lda,newdata = testing)
+hd.t2 = table(hd.predict.test$class, testing$HeartDisease )
+#~79%
+print( confusionMatrix( hd.t2 ) )
+```
+
+## tree
+```{r}
+hd.tree<- tree(HeartDisease~.-Ob, data = training)
+summary(hd.tree)
+plot(hd.tree)
+text(hd.tree,pretty=0)
+```
+
+```{r}
+library(randomForest)
+hd.rf <-randomForest(HeartDisease~Age+RestingBP+Cholesterol+MaxHR+Oldpeak+avg_glucose_level+bmi+Sex+hypertension+stroke+ChestPainType+FastingBS+ExerciseAngina+ST_Slope, data = data, importance = TRUE, proximity = TRUE)
+print(hd.rf)
+predict(hd.rf,)
+```
+
