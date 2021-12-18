@@ -1,0 +1,449 @@
+---
+title: "stats101c_project_test"
+author: "Jaya Ren"
+date: "11/18/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## packages
+```{r cars}
+library(gridExtra)
+library(ggplot2)
+library(tidyverse)
+library(ISLR)
+library(class)
+library(dplyr)
+library(mice)
+library(pls)
+library(splines)
+library(caret)
+library(MASS)
+library(glmnet)
+library(boot)
+library(tree)
+library(Hmisc)
+```
+
+## data
+
+```{r}
+training = read.csv("HDtrainNew.csv")
+testing = read.csv("HDtestNoYNew.csv")
+# change F, M to female and male, delete other
+training$Sex<- ifelse(training$Sex=="F"|training$Sex=="Female","Female","Male")
+training$Sex<-as.factor(training$Sex)
+testing$Sex<- ifelse(testing$Sex=="F"|testing$Sex=="Female","Female","Male")
+testing$Sex <-as.factor(testing$Sex)
+```
+
+```{r}
+summary(training)
+```
+
+
+
+```{r}
+#change unknowns and unreasonable 0's to NA
+#training$smoking_status[training$smoking_status=="Unknown"] <- NA
+#training$RestingBP[training$RestingBP==0] <-NA
+#training$Cholesterol[training$Cholesterol==0]<-NA
+sapply(testing, function(x) sum(is.na(x)))
+
+
+#testing$smoking_status[testing$smoking_status=="Unknown"] <- NA
+#testing$RestingBP[testing$RestingBP==0] <-NA
+#testing$Cholesterol[testing$Cholesterol==0]<-NA
+#sapply(testing, function(x) sum(is.na(x)))
+
+
+#training["older"]<-ifelse((training$Age>60 & training$Sex=="Male")|(training$Age>70 & training$Sex == "Female"),"Yes", "No")
+#testing["older"]<-ifelse((testing$Age>60 & testing$Sex=="Male")|(testing$Age>70 & testing$Sex == "Female"),"Yes", "No")
+
+training["age_group"]<-cut(training$Age, breaks = c(0,17,30,60,Inf), labels = c("adolescents","young adults", "mid-aged adults", "old adults"))
+testing["age_group"]<-cut(testing$Age, breaks = c(0,17,30,60,Inf), labels = c("adolescents","young adults", "mid-aged adults", "old adults"))
+
+#training["BMI"]<-cut(training$bmi, breaks = c(0,18.5,25,Inf), labels = c("underweight","healthy", "Overweight"))
+#testing["BMI"]<-cut(testing$bmi, breaks = c(0,18.5,25,Inf), labels = c("underweight","healthy", "Overweight"))
+
+#training["BMI35"]<-cut(training$bmi,breaks=c(0,35,Inf),labels=c("Normal","Obese"))
+#testing["BMI35"]<-cut(testing$bmi,breaks=c(0,35,Inf),labels=c("Normal","Obese"))
+
+#training["glucose_group"]<-cut(training$avg_glucose_level, breaks = c(0,125,Inf), labels = c("normal",  "diabetes"))
+#testing["glucose_group"]<-cut(testing$avg_glucose_level, breaks = c(0,125,Inf), labels = c("normal",  "diabetes"))
+
+#training["High_Chol"]<-cut(training$Cholesterol, breaks=c(-Inf,240,Inf), labels=c("No", "Yes"))
+#training$High_Chol[training$Cholesterol==0]="Yes"
+
+#testing["High_Chol"]<-cut(testing$Cholesterol, breaks=c(-Inf,240,Inf), labels=c("No", "Yes"))
+#testing$High_Chol[testing$Cholesterol==0]="Yes"
+
+#training$Cholesterol<-ave(training$Cholesterol,training$age_group,FUN=function(x) 
+#  ifelse(is.na(x), mean(x,na.rm=TRUE), x))
+#testing$Cholesterol<-ave(testing$Cholesterol,testing$age_group,FUN=function(x) 
+#  ifelse(is.na(x), mean(x,na.rm=TRUE), x))
+## impute missing values
+#training$Cholesterol<-impute(training$Cholesterol)
+#training$RestingBP<-impute(training$RestingBP)
+#training$ever_married <- impute(training$ever_married)
+#training$ever_married <- droplevels(training$ever_married)
+#training$work_type <- impute(training$work_type)
+#training$work_type <- droplevels(training$work_type)
+#training$Residence_type <- impute(training$Residence_type)
+#training$Residence_type<-droplevels(training$Residence_type)
+#training$smoking_status <- impute(training$smoking_status)
+#training$smoking_status<-droplevels(training$smoking_status)
+
+## impute missing values
+#testing$Cholesterol<-impute(testing$Cholesterol)
+#testing$RestingBP<-impute(testing$RestingBP)
+#testing$ever_married <- impute(testing$ever_married)
+#testing$ever_married <- droplevels(testing$ever_married)
+#testing$work_type <- impute(testing$work_type)
+#testing$work_type <- droplevels(testing$work_type)
+#testing$Residence_type <- impute(testing$Residence_type)
+#testing$Residence_type<-droplevels(testing$Residence_type)
+#testing$smoking_status <- impute(testing$smoking_status)
+#testing$smoking_status<-droplevels(testing$smoking_status)
+
+num_cols = c("Age", "Cholesterol", "MaxHR", "Oldpeak", "avg_glucose_level", "bmi", "RestingBP")
+```
+```{r}
+# impute by average
+# impute_arg <- aregImpute(~ Cholesterol+work_type +  Residence_type + ever_married + smoking_status , data = train, n.impute = 5)
+# impute_arg_test <- aregImpute(~ Cholesterol+work_type +  Residence_type + ever_married + smoking_status , data = test, n.impute = 5)
+# completeData2 <- impute.transcan(impute_arg, imputation=1, data=train, list.out=TRUE,pr=FALSE, check=FALSE) 
+# completeData1 <- impute.transcan(impute_arg_test, imputation=1, data=test, list.out=TRUE,pr=FALSE, check=FALSE) 
+# impute<-as.data.frame(completeData2)
+# impute_t<-as.data.frame(completeData1)
+# train_remove<-train[-c(5,13,14,15,18)]
+# test_remove<-test[-c(5,13,14,15,18)]
+# train<-cbind(train_remove,impute)
+# test<-cbind(test_remove,impute_t)
+```
+
+```{r}
+g1<-ggplot(training,aes(Age,color=HeartDisease))+geom_density() 
+g2<-ggplot(training,aes(RestingBP,color=HeartDisease))+geom_density() 
+g3<-ggplot(training,aes(Cholesterol,color=HeartDisease))+geom_density() 
+g4<-ggplot(training,aes(MaxHR,color=HeartDisease))+geom_density() 
+g5<-ggplot(training,aes(Oldpeak,color=HeartDisease))+geom_density() 
+g6<-ggplot(training,aes(avg_glucose_level,color=HeartDisease))+geom_density() 
+g7<-ggplot(training,aes(bmi,color=HeartDisease))+geom_density() 
+
+g4
+grid.arrange(g3,g4,g5,g6,nrow=2)
+```
+
+
+```{r}
+s1 <-ggplot(training, aes(x = BMI35, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+s2<-ggplot(training, aes(x = stroke, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s3 <-ggplot(training, aes(x = Residence_type, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s4 <-ggplot(training, aes(x =smoking_status, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+s5 <-ggplot(training, aes(x =work_type , y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+s6 <-ggplot(training, aes(x = hypertension, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s7 <-ggplot(training, aes(x =ST_Slope , y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+s8 <-ggplot(training, aes(x = ExerciseAngina, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s9 <-ggplot(training, aes(x = RestingECG, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s10 <-ggplot(training, aes(x=ChestPainType, y = Ob))+geom_col(aes(fill=HeartDisease), width = 0.5)
+s11 <-ggplot(training, aes(x=FastingBS, y = Ob))+geom_col(aes(fill=HeartDisease), width = 0.5)
+s12 <-ggplot(training, aes(x=Sex, y = Ob))+geom_col(aes(fill=HeartDisease), width = 0.5)+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+s13 <-ggplot(training, aes(x=ever_married, y = Ob))+geom_col(aes(fill=HeartDisease), width = 0.5)
+s14 <-ggplot(training, aes(x = age_group, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+s15 <-ggplot(training, aes(x = High_Chol, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+s16 <-ggplot(training, aes(x = glucose_group, y = Ob)) + geom_col(aes(fill= HeartDisease),width=0.5)
+
+grid.arrange(s1,s14,s15,s16,nrow = 2)
+```
+
+```{r}
+#install.packages("corrplot")
+source("http://www.sthda.com/upload/rquery_cormat.r")
+rquery.cormat(training[, num_cols])
+```
+
+
+```{r}
+hd.pca <- prcomp(training[,c("Cholesterol","MaxHR","Oldpeak", "avg_glucose_level")], center = TRUE,scale. = TRUE)
+summary(hd.pca)
+str(hd.pca)
+hd.pca$rotation
+loadings <- as.data.frame(hd.pca$rotation)
+loadings
+axes <- predict(hd.pca, newdata = training)
+training <- cbind(training, axes)
+axes_t <- predict(hd.pca,newdata = testing)
+testing <-cbind(testing, axes_t)
+```
+
+
+```{r}
+cate = colnames(training[sapply(training, function(x) !(is.numeric(x)))])
+p_val = c()
+for(i in 1:length(cate)){
+  col = cate[i]
+  test <- chisq.test(table(training$HeartDisease, training[[col]]))
+  p_val[i]=test$p.value
+}
+chi <- data.frame(cate, p_val)
+chi<- chi[order(p_val),]
+chi
+```
+RestingECG, Residence_type are independent. 
+
+```{r}
+for(i in 1:length(cate)){
+  col = cate[i]
+  test <- chisq.test(table(training$stroke, training[[col]]))
+  p_val[i]=test$p.value
+}
+chi_stroke <- data.frame(cate, p_val)
+chi_stroke<- chi_stroke[order(p_val),]
+chi_stroke
+```
+
+```{r}
+col_to_impute=c("ever_married", "work_type", "smoking_status")
+for(i in 1:length(cate)){
+  col = cate[i]
+  test <- chisq.test(table(training$ever_married, training[[col]]))
+  p_val[i]=test$p.value
+}
+chi_married <- data.frame(cate, p_val)
+chi_married<- chi_married[order(p_val),]
+chi_married
+
+for(i in 1:length(cate)){
+  col = cate[i]
+  test <- chisq.test(table(training$work_type, training[[col]]))
+  p_val[i]=test$p.value
+}
+chi_work <- data.frame(cate, p_val)
+chi_work<- chi_work[order(p_val),]
+chi_work
+
+for(i in 1:length(cate)){
+  col = cate[i]
+  test <- chisq.test(table(training$smoking_status, training[[col]]))
+  p_val[i]=test$p.value
+}
+chi_smoke <- data.frame(cate, p_val)
+chi_smoke<- chi_smoke[order(p_val),]
+chi_smoke
+
+```
+```{r}
+cat_cols = c(
+    'ever_married', 'work_type', 
+    'smoking_status'
+)
+for (col in cat_cols){
+    print(ggplot(training, aes(x=!!sym(col), y=Age, fill = !!sym(col))) + 
+       geom_boxplot())
+}
+```
+
+```{r}
+# the result of imputation is not as good as without imputation
+#training = training[,-1]
+#testing = testing[,-1]
+
+#library(mice)
+#init = mice(training, maxit=0) 
+#meth = init$method
+#predM = init$predictorMatrix
+
+#meth[c("smoking_status")]="polyreg" 
+#meth[c("ever_married")]="logreg" 
+#meth[c("work_type")]="polyreg" 
+
+#imputed = mice(training, method=meth, predictorMatrix=predM, m=5)
+
+#imputed <- complete(imputed)
+
+#sapply(imputed, function(x) sum(is.na(x)))
+
+#init = mice(testing, maxit=0) 
+#meth = init$method
+#predM = init$predictorMatrix
+
+#meth[c("smoking_status")]="polyreg" 
+#meth[c("ever_married")]="logreg" 
+#meth[c("work_type")]="polyreg" 
+
+#impute_t = mice(testing, method=meth, predictorMatrix=predM, m=5)
+
+#testing = complete(imputed_t)
+
+#sapply(imputed, function(x) sum(is.na(x)))
+```
+
+## stepwise function feature selection 
+
+```{r}
+LR.m1<-glm(as.factor(HeartDisease)~.,data=hd.train,family=binomial())
+
+bAIC=step(LR.m1,direction="backward",k=log(length(train$HeartDisease)))
+bAIC=step(LR.m1,direction="backward")
+```
+
+
+## Logistic regression
+
+```{r}
+model_pca <- glm(as.factor(HeartDisease)~PC1+PC2+PC3+PC4+Sex+ChestPainType+
+    FastingBS   + ST_Slope + ExerciseAngina+    stroke
+, data = training, family = binomial())
+summary(model_pca)
+pred.pca <- predict(model_pca, type = "response")
+#data.outm = data.frame(truth=training$HeartDisease, predicted = pred.log2, Diagonal = training$avg_glucose_level)
+
+# check the graph
+#pm1 = ggplot(data.outm, aes(Diagonal,predicted))+geom_point()
+#ppm1 = pm1+geom_point(aes(colour = truth))
+#ppm1
+
+glm.pred=rep('No',nrow(training))
+glm.pred[pred.pca>0.5] ='Yes'
+#confusion matrix for training set
+table(glm.pred,factor(training$HeartDisease))
+# accuracy 81.56
+mean(glm.pred==factor(training$HeartDisease))
+```
+## LDA
+
+```{r}
+hd.lda<-qda(as.factor(HeartDisease)~PC1+PC2+PC3+PC4+Sex+age_group+ChestPainType+    FastingBS   + ST_Slope + ExerciseAngina+    stroke +hypertension,data=training)
+library(caret)
+# confusion matrix for training 
+hd.t = table(predict(hd.lda)$class, training$HeartDisease )
+print( confusionMatrix( hd.t ) )
+```
+## lda cv
+
+```{r}
+hd.lda.cv<-lda(HeartDisease ~ PC1+PC2+PC3+PC4+Sex+age_group+ChestPainType+ FastingBS + ST_Slope + ExerciseAngina+ stroke +hypertension, data = training, CV=TRUE)
+ 
+table(training$HeartDisease, hd.lda.cv$class, dnn = c('Actual Group','Predicted Group'))
+mean(training$HeartDisease == hd.lda.cv$class)
+```
+
+## RANDOM FOREST
+```{r}
+library(randomForest)
+summary(training)
+sapply(testing, function(x) sum(is.na(x)))
+# sex doesnt work
+
+tree.hd =randomForest(HeartDisease~PC1+PC2+PC3+PC4+ChestPainType+FastingBS+ST_Slope+ExerciseAngina+stroke+age_group+hypertension+BMI35, data=training, importance = TRUE)
+tree.hd
+print(tree.hd)
+mtry <- tuneRF(training[,-c(1,3,6,9,11,14,15,16,17,18,19,21)],training$HeartDisease, ntreeTry=150, 
+               stepFactor=1.5,improve=0.01, trace=TRUE, plot=TRUE)
+best.m <- mtry[mtry[, 2] == min(mtry[, 2]), 1]
+print(mtry)
+print(best.m)
+rf <-randomForest(HeartDisease~PC1+PC2+PC3+PC4+ChestPainType+FastingBS+ST_Slope+ExerciseAngina+stroke+age_group+Sex+hypertension+RestingBP+RestingECG+BMI, data=training, importance = TRUE, proximity = TRUE, mtry=best.m, ntree=150)
+print(rf)
+#Evaluate variable importance
+importance(rf)
+varImpPlot(rf)
+plot(rf)
+hist(treesize(rf),
+     main = "No. of Nodes for the Trees",
+     col = "green")
+
+pred.test <- predict(tree.hd, newdata=testing)
+x<-data.frame("Ob"=1:1808,"HeartDisease"=pred.test)
+x<-x[,c(1,2)]
+names(x)[2]<-"HeartDisease"
+write.csv(x,"HDpred.csv", row.names = FALSE)
+```
+
+### tune random forest 
+
+```{r}
+# Create model with default paramters
+control <- trainControl(method="repeatedcv", number=10, repeats=3)
+metric <- "Accuracy"
+set.seed(1128)
+x = training_drop[,-c(1,3,6,8,11,14,15,17,20 )]
+y=training$HeartDisease
+dataset = training_drop[,-c(1,3,6,8,11,14,15,20 )]
+mtry <- sqrt(ncol(x))
+tunegrid <- expand.grid(.mtry=mtry)
+rf_default <- train(HeartDisease~., data=dataset, method="rf", metric=metric, tuneGrid=tunegrid, trControl=control)
+print(rf_default)
+
+# Random Search
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="random")
+mtry <- sqrt(ncol(x))
+rf_random <- train(HeartDisease~., data=dataset, method="rf", metric=metric, tuneLength=15, trControl=control)
+print(rf_random)
+plot(rf_random)
+
+```
+
+## SVM-Linear
+```{r}
+library(e1071)
+training_drop=training[,-c(14,15,16,19)]
+svmfit = svm(as.factor(HeartDisease) ~ PC1+PC2+PC3+PC4+Sex+age_group+ChestPainType+FastingBS+ ST_Slope + ExerciseAngina+stroke, data = training_drop, kernel = "linear", gamma = 1)
+print(svmfit)
+svm.pred = predict(svmfit, training_drop)
+table(svm.pred,factor(training$HeartDisease))
+# accuracy 81.56
+mean(svm.pred== factor(training$HeartDisease))
+
+tune.out=tune(svm,as.factor(HeartDisease) ~ PC1+PC2+PC3+PC4+Sex+age_group+ChestPainType+FastingBS+ ST_Slope + ExerciseAngina+stroke, data=training_drop,kernel="linear", ranges = list(cost=c(1, 10,50 ), gamma = c(1,2,3)))
+
+summary(tune.out)
+tune.out$best.performance
+tune.out$best.parameters
+
+preds2=predict(tune.out$best.model, data= training_drop)
+table(preds2, training$HeartDisease)
+
+svm.pred.t = predict(svmfit, newdata = testing[,-c(14,15,16,19)])
+x<-data.frame("Ob"=1:1808,"HeartDisease"=svm.pred.t)
+x<-x[,c(1,2)]
+names(x)[2]<-"HeartDisease"
+write.csv(x,"HDpred.csv", row.names = FALSE)
+```
+## SVM -Radial
+```{r}
+svmfit = svm(as.factor(HeartDisease) ~ PC1+PC2+PC3+PC4+Sex+age_group+ChestPainType+FastingBS+ ST_Slope + ExerciseAngina+stroke, data = training_drop, kernel = "radial", gamma = 0.4, cost=1)
+print(svmfit)
+svm.pred = predict(svmfit, training_drop)
+table(svm.pred,factor(training$HeartDisease))
+# accuracy 81.56
+mean(svm.pred== factor(training$HeartDisease))
+```
+
+## KNN CV
+```{r}
+library(Rfast)
+#MaxHR, Oldpeak, ave_glucose_level, stroke
+x <- as.matrix(training[, c("PC1", "PC2", "PC3", "PC4")])
+y <- as.factor(training[, "HeartDisease"])
+mod <- knn.cv(nfolds = 10, k=25, y = y, x = x)
+mod$crit
+```
+
+## write to file 
+
+```{r}
+#pred.test <- predict(model_pca, testing, type="response")
+#glm.pred=rep('No',nrow(testing))
+#glm.pred[pred.test>0.5] ='Yes'
+#x<-data.frame("Ob"=1:1808,"HeartDisease"=glm.pred)
+pred.test <- predict(hd.lda, testing)
+x<-data.frame("Ob"=1:1808,"HeartDisease"=pred.test)
+x<-x[,c(1,2)]
+names(x)[2]<-"HeartDisease"
+write.csv(x,"HDpred.csv", row.names = FALSE)
+```
